@@ -4,20 +4,26 @@ pipeline {
     stages {
         stage('Build') {
             steps {
-                echo "This is build stage"
+                sh 'mvn -B -DskipTests clean package'
+            }
+
+            post {
+                success {
+                    archiveArtifacts artifacts: 'target/*.jar'
+                }
             }
         }
 
         stage('Test') {
             steps {
-                echo "This is test stage"
+                sh 'mvn test'
+            }
+            post {
+                always {
+                    junit 'target/surefire-reports/*.xml'
+                }
             }
         }
 
-        stage('Deploy') {
-            steps {
-                echo "Deploy stage"
-            }
-        }
     }
 }
