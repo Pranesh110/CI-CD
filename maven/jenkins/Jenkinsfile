@@ -36,5 +36,20 @@ pipeline {
             }
         }
 
+        stage('parallel stage'){
+            parallel{
+                stage('test1'){
+                    steps{
+                        echo "test1"
+                    }
+                }
+                stage('test2'){
+                    steps{
+                        echo "test2"
+                    }
+                }
+            }
+        }
+
     }
 }
