@@ -4,11 +4,18 @@ pipeline {
     tools {
      maven 'mymaven'
 }
-    
+    environment {
+        name = 'maven-jenkins'
+    }
+    parameters {
+        string(name: 'BRANCH_NAME', defaultValue: 'main', description: 'Branch to build')
+    }
     stages {
         stage('Build') {
             steps {
                 sh 'mvn clean package'
+                echo "Build completed for ${env.name}"
+                echo "Building branch: ${params.BRANCH_NAME}"
             }
 
             post {
