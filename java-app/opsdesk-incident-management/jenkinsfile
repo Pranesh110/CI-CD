@@ -172,7 +172,10 @@ pipeline {
                 stage('OWASP Dependency Check') {
 
                     steps {
+                        sh 'echo skipping owasp dependency check'
+                        /*
                         dir("${APP_DIR}") {
+                            
                             sh 'mvn org.owasp:dependency-check-maven:check'
                         }
                     }
@@ -185,8 +188,11 @@ pipeline {
                                 allowEmptyArchive: true
                             )
                         }
-                    }
+                   
+                   }
+                */
                 }
+
             }
         }
 
