@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OpsDesk | Operations Center</title><link rel="stylesheet" href="/styles.css"></head>
+<body>
+<aside class="sidebar"><div class="brand"><b>O</b> opsdesk</div><small>WORKSPACE</small><a class="active">▦ &nbsp; Overview</a><a href="#incidents">◈ &nbsp; Incidents</a><div class="profile"><b>OP</b><span>Operations Team<small>Platform engineering</small></span></div></aside>
+<main><header><div><small>WORKSPACE / OVERVIEW</small><h1>Incident overview</h1></div><button id="newBtn">＋ New incident</button></header>
+<section class="hero"><small>OPERATIONS CENTER</small><h2>Good morning, team.</h2><p>Monitor service health and coordinate incident response.</p></section>
+<section class="stats">
+<article><span>Total incidents</span><strong id="total">—</strong><small>Across all services</small></article>
+<article><span>Open incidents</span><strong id="open">—</strong><small>Needs attention</small></article>
+<article><span>In progress</span><strong id="progress">—</strong><small>Being investigated</small></article>
+<article><span>Resolved</span><strong id="resolved">—</strong><small>Successfully closed</small></article></section>
+<section class="panel" id="incidents"><div class="panelhead"><div><h3>Recent incidents</h3><p>Track and manage service disruptions.</p></div><div><input id="search" placeholder="Search incidents"><select id="filter"><option value="ALL">All statuses</option><option>OPEN</option><option value="IN_PROGRESS">In progress</option><option>RESOLVED</option></select></div></div>
+<div class="scroll"><table><thead><tr><th>INCIDENT</th><th>SERVICE</th><th>ASSIGNEE</th><th>PRIORITY</th><th>STATUS</th><th>UPDATE</th></tr></thead><tbody id="rows"><tr><td colspan="6">Loading…</td></tr></tbody></table></div><footer id="count">Loading incidents</footer></section>
+<div class="api">API status: <b id="api">Checking</b></div></main>
+<div class="shade hidden" id="shade"><form id="form" class="modal"><button type="button" class="x" id="close">×</button><small>INCIDENT MANAGEMENT</small><h2>Create incident</h2>
+<label>Title<input name="title" required maxlength="100"></label><label>Description<textarea name="description" required maxlength="1000"></textarea></label>
+<div class="two"><label>Service<input name="service" required></label><label>Assignee<input name="assignee" required></label></div>
+<label>Priority<select name="priority"><option>LOW</option><option>MEDIUM</option><option>HIGH</option><option>CRITICAL</option></select></label>
+<p id="error"></p><button type="submit">Create incident</button></form></div><div id="toast"></div>
+<script src="/app.js"></script></body></html>
