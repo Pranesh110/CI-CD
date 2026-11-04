@@ -1,0 +1,94 @@
+
+---
+- name: Manual rollback of OpsDesk application
+  hosts: production
+  become: true
+  gather_facts: false
+
+  vars:
+    container_name: java-app
+    application_port: 8080
+    health_url: http://127.0.0.1:8080/actuator/health
+
+  tasks:
+
+
+    # =========================================
+    # 1. VALIDATE JENKINS PARAMETERS
+    # =========================================
+
+    - name: Validate rollback image variables
+      ansible.builtin.assert:
+        that:
+          - image_name is defined
+          - image_tag is defined
+          - image_tag | length > 0
+        fail_msg: "Jenkins must provide image_name and image_tag."
+
+    
+    # =========================================
+    # 2. PULL SELECTED ROLLBACK IMAGE
+    # =========================================
+
+    - name: Pull selected rollback image
+      ansible.builtin.command:
+        argv:
+          - docker
+          - pull
+          - "{{ image_name }}:{{ image_tag }}"
+
+    # =========================================
+    # 3. DEPLOY SELECTED OLD VERSION
+    # =========================================
+
+    - name: Perform manual rollback
+      block:
+
+        - name: Stop current application container
+          ansible.builtin.command:
+            argv:
+              - docker
+              - stop
+              - "{{ container_name }}"
+
+        - name: Remove current application container
+          ansible.builtin.command:
+            argv:
+              - docker
+              - rm
+              - "{{ container_name }}"
+
+        - name: Start selected rollback image
+          ansible.builtin.command:
+            argv:
+              - docker
+              - run
+              - -d
+              - --name
+              - "{{ container_name }}"
+              - --restart
+              - unless-stopped
+              - -p
+              - "{{ application_port }}:8080"
+              - "{{ image_name }}:{{ image_tag }}"
+
+        # =====================================
+        # 6. SMOKE TEST
+        # =====================================
+
+        - name: Check rollback application health
+          ansible.builtin.uri:
+            url: "{{ health_url }}"
+            method: GET
+            status_code: 200
+            return_content: true
+          register: rollback_health
+          retries: 12
+          delay: 5
+          until: rollback_health.status == 200
+
+        - name: Report rollback success
+          ansible.builtin.debug:
+            msg: "Successfully rolled back to {{ image_name }}:{{ image_tag }}"
+
+      
