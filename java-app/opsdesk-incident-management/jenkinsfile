@@ -34,8 +34,8 @@ pipeline {
 
                 stash(
 
-                    name: 'ansible-files'
-                    includes: 'java-app/opsdesk-incident-management/Ansible-CD/**'
+                    name: 'ansible-files',
+                    includes: 'java-app/opsdesk-incident-management/Ansible-CD/**',
                     useDefaultExcludes: false
                 )
             }
