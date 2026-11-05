@@ -147,7 +147,7 @@
 
         - name: Check application health
           ansible.builtin.uri:
-            url: http://127.0.0.1:8080/invalid-health-check
+            url: "{{ health_url }}"
             method: GET
             status_code: 200
             return_content: true
