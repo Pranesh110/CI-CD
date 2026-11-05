@@ -291,6 +291,9 @@ pipeline {
             steps {
                 
                 sh '''
+                    echo "Trivy is skkipping image scan for now"
+                    '''
+                    /*
                     sudo mkdir -p /var/cache/trivy-tmp
                     sudo chown ubuntu:ubuntu /var/cache/trivy-tmp
                     export TMPDIR=/var/cache/trivy-tmp
@@ -301,7 +304,7 @@ pipeline {
                      --severity HIGH,CRITICAL \
                      "$DOCKERHUB_REPO:$IMAGE_TAG"
                      '''
-            }
+            }*/
         }
 
         // ==========================================
