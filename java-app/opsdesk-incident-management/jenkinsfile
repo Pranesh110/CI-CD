@@ -28,7 +28,7 @@ pipeline {
 
         string(
             name: 'New_version',
-            defaultValue: 'v1.0',
+            defaultValue: 'v1.1',
             description: 'Docker image version to deploy or rollback to'
         )
     }
