@@ -303,8 +303,9 @@ pipeline {
                      --exit-code 1 \
                      --severity HIGH,CRITICAL \
                      "$DOCKERHUB_REPO:$IMAGE_TAG"
-                     '''
-            }*/
+             
+                     '''*/
+            }
         }
 
         // ==========================================
