@@ -1,0 +1,226 @@
+
+---
+- name: Deploy OpsDesk application
+  hosts: production
+  gather_facts: false
+
+  vars:
+    container_name: java-app
+    application_port: 8080
+    health_url: http://127.0.0.1:8080/actuator/health
+
+  tasks:
+
+    # =========================================
+    # 1. INSTALL DOCKER
+    # Runs every time, but Ansible is idempotent
+    # =========================================
+
+    - name: Update Ubuntu package cache
+      become: true
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install Docker
+      become: true
+      ansible.builtin.apt:
+        name: docker.io
+        state: present
+
+    - name: Enable and start Docker service
+      become: true
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    # =========================================
+    # 2. ADD UBUNTU USER TO DOCKER GROUP
+    # =========================================
+
+    - name: Add ubuntu user to Docker group
+      become: true
+      ansible.builtin.user:
+        name: ubuntu
+        groups: docker
+        append: true
+
+    - name: Refresh SSH connection
+      ansible.builtin.meta: reset_connection
+
+    # =========================================
+    # 3. VALIDATE JENKINS VARIABLES
+    # =========================================
+
+    - name: Validate image variables
+      ansible.builtin.assert:
+        that:
+          - image_name is defined
+          - image_tag is defined
+          - image_tag | length > 0
+        fail_msg: "Jenkins must provide image_name and image_tag."
+
+    # =========================================
+    # 4. FIND EXISTING CONTAINER IMAGE
+    # =========================================
+
+    - name: Inspect existing production container
+      ansible.builtin.command:
+        argv:
+          - docker
+          - inspect
+          - --format={{ '{{' }}.Config.Image{{ '}}' }}
+          - "{{ container_name }}"
+      register: previous_container
+      changed_when: false
+      failed_when: false
+
+    - name: Register previous image
+      ansible.builtin.set_fact:
+        previous_image: "{{ previous_container.stdout | trim }}"
+        previous_image_exists: "{{ previous_container.rc == 0 }}"
+
+    - name: Display previous image
+      ansible.builtin.debug:
+        msg: "Previous production image: {{ previous_image }}"
+      when: previous_image_exists | bool
+
+    - name: Display first deployment information
+      ansible.builtin.debug:
+        msg: "No existing container found. This is the first deployment."
+      when: not (previous_image_exists | bool)
+
+    # =========================================
+    # 5. PULL NEW IMAGE
+    # Pull before removing existing container
+    # =========================================
+
+    - name: Pull new Docker image
+      ansible.builtin.command:
+        argv:
+          - docker
+          - pull
+          - "{{ image_name }}:{{ image_tag }}"
+
+    # =========================================
+    # 6. DEPLOY NEW VERSION
+    # =========================================
+
+    - name: Deploy application
+      block:
+
+        - name: Stop existing application container
+          ansible.builtin.command:
+            argv:
+              - docker
+              - stop
+              - "{{ container_name }}"
+          when: previous_image_exists | bool
+
+        - name: Remove existing application container
+          ansible.builtin.command:
+            argv:
+              - docker
+              - rm
+              - "{{ container_name }}"
+          when: previous_image_exists | bool
+
+        - name: Run new application container
+          ansible.builtin.command:
+            argv:
+              - docker
+              - run
+              - -d
+              - --name
+              - "{{ container_name }}"
+              - --restart
+              - unless-stopped
+              - -p
+              - "{{ application_port }}:8080"
+              - "{{ image_name }}:{{ image_tag }}"
+          register: new_container
+
+        # =====================================
+        # 7. SMOKE TEST
+        # =====================================
+
+        - name: Check application health
+          ansible.builtin.uri:
+            url: "{{ health_url }}"
+            method: GET
+            status_code: 200
+            return_content: true
+          register: health_result
+          retries: 12
+          delay: 5
+          until: health_result.status == 200
+
+        - name: Deployment successful
+          ansible.builtin.debug:
+            msg: "Successfully deployed {{ image_name }}:{{ image_tag }}"
+
+      # =======================================
+      # 8. AUTOMATIC ROLLBACK
+      # =======================================
+
+      rescue:
+
+        - name: Display deployment failure
+          ansible.builtin.debug:
+            msg: "New deployment failed. Initiating automatic rollback."
+
+        - name: Remove failed container
+          ansible.builtin.command:
+            argv:
+              - docker
+              - rm
+              - -f
+              - "{{ container_name }}"
+          failed_when: false
+          changed_when: false
+
+        - name: Pull previous image
+          ansible.builtin.command:
+            argv:
+              - docker
+              - pull
+              - "{{ previous_image }}"
+          when: previous_image_exists | bool
+
+        - name: Restore previous application image
+          ansible.builtin.command:
+            argv:
+              - docker
+              - run
+              - -d
+              - --name
+              - "{{ container_name }}"
+              - --restart
+              - unless-stopped
+              - -p
+              - "{{ application_port }}:8080"
+              - "{{ previous_image }}"
+          when: previous_image_exists | bool
+
+        - name: Verify restored application
+          ansible.builtin.uri:
+            url: "{{ health_url }}"
+            method: GET
+            status_code: 200
+          register: rollback_health
+          retries: 12
+          delay: 5
+          until: rollback_health.status == 200
+          when: previous_image_exists | bool
+
+        - name: Report first deployment failure
+          ansible.builtin.debug:
+            msg: "First deployment failed. No previous image is available for rollback."
+          when: not (previous_image_exists | bool)
+
+        - name: Mark deployment as failed
+          ansible.builtin.fail:
+            msg: >-
+              Deployment of {{ image_name }}:{{ image_tag }} failed.
+              Automatic rollback was attempted where a previous image existed.

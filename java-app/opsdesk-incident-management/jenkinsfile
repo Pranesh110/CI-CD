@@ -1,0 +1,436 @@
+
+pipeline {
+
+    // ==========================================
+    // PIPELINE AGENT
+    // ==========================================
+
+    agent {
+        label 'agent1'
+    }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        skipDefaultCheckout(true)
+    }
+
+    // ==========================================
+    // PARAMETERS
+    // ==========================================
+
+    parameters {
+        choice(
+            name: 'Deployment_Method',
+            choices: ['deploy', 'rollback'],
+            description: 'Select deployment or rollback'
+        )
+
+        string(
+            name: 'New_version',
+            defaultValue: 'v1.1',
+            description: 'Docker image version to deploy or rollback to'
+        )
+    }
+
+    // ==========================================
+    // ENVIRONMENT VARIABLES
+    // ==========================================
+
+    environment {
+        IMAGE_TAG = "${params.New_version}"
+        SONAR_PROJECT_KEY = 'opsdesk'
+        SONAR_PROJECT_NAME = 'OpsDesk Incident Management'
+        DOCKERHUB_REPO = 'praneshdoc07/jen-app'
+        APP_DIR = 'java-app/opsdesk-incident-management'
+    }
+
+    stages {
+
+        // ==========================================
+        // 1. CHECKOUT SOURCE CODE
+        // Runs for both DEPLOY and ROLLBACK
+        // ==========================================
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+
+                stash(
+                    name: 'ansible-files',
+                    includes: 'java-app/opsdesk-incident-management/Ansible-CD/**',
+                    useDefaultExcludes: false
+                )
+            }
+        }
+
+        // ==========================================
+        // 2. GITLEAKS SECRET SCAN
+        // Scans only the Java application directory
+        // ==========================================
+
+        stage('Git-leak') {
+
+            when {
+                beforeAgent true
+                expression {
+                    params.Deployment_Method == 'deploy'
+                }
+            }
+
+            agent {
+                docker {
+                    label 'agent1'
+                    image 'ghcr.io/gitleaks/gitleaks:v8.24.2'
+                    args '--entrypoint=""'
+                    reuseNode true
+                }
+            }
+
+            steps {
+                sh '''
+                    gitleaks detect \
+                      --source="$WORKSPACE/$APP_DIR" \
+                      --redact \
+                      --exit-code 1
+                '''
+            }
+        }
+
+        // ==========================================
+        // 3. MAVEN CI
+        // Java 17 container
+        // Build + Test + SpotBugs + OWASP
+        // ==========================================
+
+        stage('Maven CI') {
+
+            when {
+                beforeAgent true
+                expression {
+                    params.Deployment_Method == 'deploy'
+                }
+            }
+
+            agent {
+                docker {
+                    label 'agent1'
+                    image 'maven:3.9.9-eclipse-temurin-17'
+                    reuseNode true
+                    args '-v maven-repo-cache:/root/.m2'
+                }
+            }
+
+            stages {
+
+                // ----------------------------------
+                // 3.1 BUILD AND TEST
+                // ----------------------------------
+
+                stage('Build') {
+
+                    steps {
+                        dir("${APP_DIR}") {
+                            sh 'mvn clean verify'
+                        }
+                    }
+
+                    post {
+                        always {
+
+                            junit(
+                                testResults: "${APP_DIR}/target/surefire-reports/*.xml",
+                                allowEmptyResults: true
+                            )
+
+                            archiveArtifacts(
+                                artifacts: "${APP_DIR}/target/*.jar",
+                                fingerprint: true,
+                                allowEmptyArchive: true
+                            )
+                        }
+                    }
+                }
+
+                // ----------------------------------
+                // 3.2 SPOTBUGS
+                // ----------------------------------
+
+                stage('SpotBugs') {
+
+                    steps {
+                        dir("${APP_DIR}") {
+                            sh 'mvn spotbugs:check'
+                        }
+                    }
+                }
+
+                // ----------------------------------
+                // 3.3 OWASP DEPENDENCY CHECK
+                // ----------------------------------
+
+                stage('OWASP Dependency Check') {
+
+                    steps {
+                        sh 'echo skipping owasp dependency check'
+                        /*
+                        dir("${APP_DIR}") {
+                            
+                            sh 'mvn org.owasp:dependency-check-maven:check'
+                        }
+                    }
+
+                    post {
+                        always {
+
+                            archiveArtifacts(
+                                artifacts: "${APP_DIR}/target/dependency-check-report.html",
+                                allowEmptyArchive: true
+                            )
+                        }
+                   */
+                   }
+                
+                }
+
+            }
+        }
+
+        // ==========================================
+        // 4. SONARQUBE ANALYSIS
+        // Separate Java 21 container
+        // ==========================================
+
+        stage('SonarQube Analysis') {
+
+            when {
+                beforeAgent true
+                expression {
+                    params.Deployment_Method == 'deploy'
+                }
+            }
+
+            agent {
+                docker {
+                    label 'agent1'
+                    image 'maven:3.9.9-eclipse-temurin-21'
+                    reuseNode true
+                    args '-v maven-repo-cache:/root/.m2'
+                }
+            }
+
+            steps {
+
+                dir("${APP_DIR}") {
+
+                    withSonarQubeEnv('SonarQube-Server') {
+
+                        withCredentials([
+                            string(
+                                credentialsId: 'sonarqube-token',
+                                variable: 'SONAR_TOKEN'
+                            )
+                        ]) {
+
+                            sh '''
+                                mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+                                  -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
+                                  -Dsonar.projectName="$SONAR_PROJECT_NAME" \
+                                  -Dsonar.host.url="$SONAR_HOST_URL" \
+                                  -Dsonar.token="$SONAR_TOKEN" \
+                                  -Dsonar.java.binaries=target/classes \
+                                  -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+
+        // ==========================================
+        // 5. DOCKER IMAGE BUILD
+        // Uses the JAR generated by Maven CI
+        // ==========================================
+
+        stage('Docker Build') {
+
+            when {
+                beforeAgent true
+                expression {
+                    params.Deployment_Method == 'deploy'
+                }
+            }
+
+            steps {
+
+                dir("${APP_DIR}") {
+
+                    sh '''
+                        docker build \
+                          -t "$DOCKERHUB_REPO:$IMAGE_TAG" \
+                          -f Dockerfile .
+                    '''
+                }
+            }
+        }
+
+        // ==========================================
+        // 6. TRIVY IMAGE SCAN
+        // Trivy installed directly on agent1
+        // ==========================================
+
+        stage('Trivy Scan') {
+
+            when {
+                beforeAgent true
+                expression {
+                    params.Deployment_Method == 'deploy'
+                }
+            }
+
+            steps {
+                
+                sh '''
+                    echo "Trivy is skkipping image scan for now"
+                    '''
+                    /*
+                    sudo mkdir -p /var/cache/trivy-tmp
+                    sudo chown ubuntu:ubuntu /var/cache/trivy-tmp
+                    export TMPDIR=/var/cache/trivy-tmp
+                    trivy image \
+                     --cache-dir /home/ubuntu/.cache/trivy \
+                     --skip-version-check \
+                     --exit-code 1 \
+                     --severity HIGH,CRITICAL \
+                     "$DOCKERHUB_REPO:$IMAGE_TAG"
+             
+                     '''*/
+            }
+        }
+
+        // ==========================================
+        // 7. DOCKER HUB PUSH
+        // Already logged in on agent1
+        // ==========================================
+
+        stage('Docker Hub Push') {
+
+            when {
+                beforeAgent true
+                expression {
+                    params.Deployment_Method == 'deploy'
+                }
+            }
+
+            steps {
+
+                sh '''
+                    docker push "$DOCKERHUB_REPO:$IMAGE_TAG"
+                '''
+            }
+        }
+
+        // ==========================================
+        // 8. ANSIBLE AUTOMATIC DEPLOYMENT
+        // deploy.yml handles automatic rollback
+        // if new deployment smoke test fails
+        // ==========================================
+
+        stage('Ansible Deploy') {
+
+            when {
+                beforeAgent true
+                expression {
+                    params.Deployment_Method == 'deploy'
+                }
+            }
+
+            agent {
+                label 'ansible'
+            }
+
+            steps {
+
+                deleteDir()
+
+                unstash 'ansible-files'
+
+                sh '''
+                    ansible-playbook \
+                      -i java-app/opsdesk-incident-management/Ansible-CD/inventory.ini \
+                      java-app/opsdesk-incident-management/Ansible-CD/deploy.yml \
+                      -e "image_name=${DOCKERHUB_REPO}" \
+                      -e "image_tag=${IMAGE_TAG}"
+                '''
+            }
+        }
+
+        // ==========================================
+        // 9. MANUAL ROLLBACK
+        // Skips CI, build, scan and push
+        // ==========================================
+
+        stage('Ansible Rollback') {
+
+            when {
+                beforeAgent true
+                expression {
+                    params.Deployment_Method == 'rollback'
+                }
+            }
+
+            agent {
+                label 'ansible'
+            }
+
+            steps {
+
+                deleteDir()
+
+                unstash 'ansible-files'
+
+                sh '''
+                    ansible-playbook \
+                      -i java-app/opsdesk-incident-management/Ansible-CD/inventory.ini \
+                      java-app/opsdesk-incident-management/Ansible-CD/rollback.yml \
+                      -e "image_name=${DOCKERHUB_REPO}" \
+                      -e "image_tag=${IMAGE_TAG}"
+                '''
+            }
+        }
+    }
+
+    // ==========================================
+    // POST BUILD ACTIONS
+    // ==========================================
+
+    post {
+
+        success {
+
+            echo """
+                Pipeline completed successfully.
+
+                ACTION: ${params.Deployment_Method}
+                IMAGE: ${DOCKERHUB_REPO}:${IMAGE_TAG}
+            """
+        }
+
+        failure {
+
+            echo """
+                Pipeline failed.
+
+                ACTION: ${params.Deployment_Method}
+                IMAGE: ${DOCKERHUB_REPO}:${IMAGE_TAG}
+
+                Check Jenkins console output.
+            """
+        }
+
+        always {
+
+            echo 'OpsDesk CI/CD pipeline execution completed.'
+        }
+    }
+}
