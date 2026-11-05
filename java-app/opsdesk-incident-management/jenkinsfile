@@ -291,6 +291,8 @@ pipeline {
             steps {
                 
                 sh '''
+                    sudo mkdir -p /var/cache/trivy-tmp
+                    sudo chown ubuntu:ubuntu /var/cache/trivy-tmp
                     export TMPDIR=/var/cache/trivy-tmp
                     trivy image \
                      --cache-dir /home/ubuntu/.cache/trivy \
