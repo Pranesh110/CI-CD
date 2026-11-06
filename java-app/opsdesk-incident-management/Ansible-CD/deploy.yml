@@ -75,7 +75,9 @@
       register: previous_container
       changed_when: false
       failed_when: false
-
+      #failed when is set to false because if the container does not exist, we don't want to fail the playbook. We will handle this case in the next task.
+      #changed when is set to false because we don't want to mark the playbook as changed if the container does not exist. We will handle this case in the next task.
+      #why not use ignore_errors? because we want to capture the output of the command and use it in the next task. If we use ignore_errors, we will not be able to capture the output.
     - name: Register previous image
       ansible.builtin.set_fact:
         previous_image: "{{ previous_container.stdout | trim }}"
@@ -109,6 +111,8 @@
 
     - name: Deploy application
       block:
+      #block and rescue are used to handle errors and perform automatic rollback if the deployment fails.
+      #block is used to group tasks that are related to the deployment of the new version. If any task in the block fails, the rescue section will be executed to perform automatic rollback.
 
         - name: Stop existing application container
           ansible.builtin.command:
