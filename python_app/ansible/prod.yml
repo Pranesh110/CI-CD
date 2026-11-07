@@ -1,0 +1,95 @@
+
+---
+- name: Deploy HelpDesk Pro to Dev
+  hosts: prod
+  become: true
+
+  vars:
+    deploy_path: /opt/helpdesk
+
+  tasks:
+
+    # =========================================
+    # 1. INSTALL DOCKER
+    # Runs every time, but Ansible is idempotent
+    # =========================================
+
+    - name: Update Ubuntu package cache
+      become: true
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install Docker
+      become: true
+      ansible.builtin.apt:
+        name: docker.io
+        state: present
+
+    - name: Enable and start Docker service
+      become: true
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    # =========================================
+    # 2. ADD UBUNTU USER TO DOCKER GROUP
+    # =========================================
+
+    - name: Add ubuntu user to Docker group
+      become: true
+      ansible.builtin.user:
+        name: ubuntu
+        groups: docker
+        append: true
+
+    - name: Refresh SSH connection
+      ansible.builtin.meta: reset_connection
+
+    - name: Create application deployment directory
+      ansible.builtin.file:
+        path: "{{ deploy_path }}"
+        state: directory
+        mode: '0755'
+
+    - name: Copy Docker Compose file
+      ansible.builtin.copy:
+        src: /compose.yml"
+        dest: "{{ deploy_path }}/compose.yaml"
+        mode: '0644'
+
+    - name: Create environment configuration
+      ansible.builtin.copy:
+        src: /.env"
+        dest: "{{ deploy_path }}/.env"
+        
+
+    - name: Validate Docker Compose configuration
+      ansible.builtin.command:
+        cmd: docker compose config -q
+        chdir: "{{ deploy_path }}"
+
+    - name: Pull latest application and database images
+      ansible.builtin.command:
+        cmd: docker compose pull
+        chdir: "{{ deploy_path }}"
+
+    - name: Deploy HelpDesk Pro
+      ansible.builtin.command:
+        cmd: docker compose up -d --remove-orphans
+        chdir: "{{ deploy_path }}"
+
+    - name: Wait for application health endpoint
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8000/health
+        method: GET
+        status_code: 200
+      register: health_result
+      retries: 12
+      delay: 10
+      until: health_result.status == 200
+
+    - name: Display deployment result
+      ansible.builtin.debug:
+        msg: "HelpDesk Pro successfully deployed to Dev."

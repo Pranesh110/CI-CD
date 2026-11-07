@@ -1,0 +1,308 @@
+
+pipeline {
+
+    agent {
+        label 'agent1'
+    }
+
+    parameters {
+        string(
+            name: 'IMAGE_TAG',
+            defaultValue: 'v1.0',
+            description: 'Docker image version to build and deploy'
+        )
+    }
+
+    environment {
+        APP_DIR = 'python_app/it-incident-desk-app'
+
+        WEB_IMAGE = "praneshdoc07/helpdesk-web:${params.IMAGE_TAG}"
+        DB_IMAGE  = 'praneshdoc07/helpdesk-db:16'
+
+        SONAR_PROJECT_KEY = 'python-helpdesk-pro'
+
+        DEV_URL = 'http://DEV_SERVER_IP:8000'
+        PROD_URL = 'http://PROD_SERVER_IP:8000'
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+
+                echo 'Source code checked out successfully'
+
+                stash name: 'ansible-files',
+                      includes: 'python_app/ansible/**'
+            }
+        }
+
+        stage('Secret Scan - Gitleaks') {
+            steps {
+                sh '''
+                    gitleaks detect \
+                      --source . \
+                      --no-git \
+                      --exit-code 1
+                '''
+            }
+        }
+
+        stage('Python Build and Test') {
+
+            agent {
+                docker {
+                    image 'python:3.12-slim'
+                    label 'agent1'
+                    reuseNode true
+                }
+            }
+
+            steps {
+
+                dir("${APP_DIR}") {
+
+                    sh '''
+                        python --version
+
+                        python -m venv .venv
+                        . .venv/bin/activate
+
+                        python -m pip install --upgrade pip
+
+                        pip install -r requirements.txt
+                        pip install pytest pytest-cov httpx ruff bandit
+
+                        echo "Running Pytest and Coverage"
+
+                        pytest --cov=app \
+                          --cov-report=xml \
+                          --cov-report=term-missing
+
+                        echo "Running Ruff"
+
+                        ruff check .
+
+                        echo "Running Bandit"
+
+                        bandit -r . --exclude ./.venv
+
+                        echo "Starting application smoke test"
+
+                        uvicorn app:app \
+                          --host 127.0.0.1 \
+                          --port 8000 \
+                          > /tmp/helpdesk-test.log 2>&1 &
+
+                        APP_PID=$!
+
+                        cleanup() {
+                            kill "$APP_PID" 2>/dev/null || true
+                        }
+
+                        trap cleanup EXIT
+
+                        python - <<'PY'
+                        import time
+                        import urllib.request
+
+                        url = "http://127.0.0.1:8000/health"
+
+                        for attempt in range(15):
+                            try:
+                                with urllib.request.urlopen(url, timeout=2) as response:
+                                    print(response.read().decode())
+                                    break
+                            except Exception:
+                                if attempt == 14:
+                                    raise
+                                time.sleep(2)
+                        PY
+                    '''
+                }
+            }
+        }
+
+        stage('SonarQube Analysis') {
+
+            steps {
+
+                dir("${APP_DIR}") {
+
+                    script {
+
+                        def scannerHome = tool 'SonarScanner'
+
+                        withSonarQubeEnv('SonarQube-Server') {
+
+                            withCredentials([
+                                string(
+                                    credentialsId: 'sonarqube-token',
+                                    variable: 'SONAR_TOKEN'
+                                )
+                            ]) {
+
+                                sh """
+                                    ${scannerHome}/bin/sonar-scanner \
+                                      -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                                      -Dsonar.projectName=HelpDesk-Pro \
+                                      -Dsonar.sources=. \
+                                      -Dsonar.python.version=3.12 \
+                                      -Dsonar.python.coverage.reportPaths=coverage.xml \
+                                      -Dsonar.token=\$SONAR_TOKEN
+                                """
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Build Docker Images') {
+
+            steps {
+
+                sh '''
+                    echo "Building HelpDesk web image"
+
+                    docker build \
+                      -t "$WEB_IMAGE" \
+                      -f python_app/Dockerfile \
+                      python_app/
+
+                    echo "Building PostgreSQL image"
+
+                    docker build \
+                      -t "$DB_IMAGE" \
+                      -f python_app/database/Dockerfile \
+                      python_app/database/
+                '''
+            }
+        }
+
+        stage('Push Images to Docker Hub') {
+
+            steps {
+
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-credentials',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )
+                ]) {
+
+                    sh '''
+                        echo "$DOCKER_PASS" | docker login \
+                          -u "$DOCKER_USER" \
+                          --password-stdin
+
+                        docker push "$WEB_IMAGE"
+                        docker push "$DB_IMAGE"
+
+                        docker logout
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy to Dev') {
+
+            agent {
+                label 'ansible'
+            }
+
+            steps {
+
+                deleteDir()
+
+                unstash 'ansible-files'
+
+                sh '''
+                    ansible-playbook \
+                      -i dev python_app/ansible/inventory.ini \
+                      python_app/ansible/dev.yml 
+                '''
+            }
+        }
+
+        stage('Dev Health Check') {
+
+            steps {
+
+                sh '''
+                    curl --fail --retry 10 --retry-delay 5 \
+                      "$DEV_URL/health"
+
+                    curl --fail --retry 10 --retry-delay 5 \
+                      "$DEV_URL/health/db"
+                '''
+            }
+        }
+
+        stage('Production Approval') {
+
+            steps {
+
+                timeout(time: 24, unit: 'HOURS') {
+
+                    input(
+                        message: "Dev deployment successful. Deploy ${WEB_IMAGE} to Production?",
+                        ok: 'Approve Production Deployment'
+                    )
+                }
+            }
+        }
+
+        stage('Deploy to Production') {
+
+            agent {
+                label 'ansible'
+            }
+
+            steps {
+
+                deleteDir()
+
+                unstash 'ansible-files'
+
+                sh '''
+                    ansible-playbook \
+                      -i prod python_app/ansible/inventory.ini \
+                      python_app/ansible/prod.yml 
+                '''
+            }
+        }
+
+        stage('Production Health Check') {
+
+            steps {
+
+                sh '''
+                    curl --fail --retry 10 --retry-delay 5 \
+                      "$PROD_URL/health"
+
+                    curl --fail --retry 10 --retry-delay 5 \
+                      "$PROD_URL/health/db"
+                '''
+            }
+        }
+    }
+
+    post {
+
+        success {
+            echo 'HelpDesk Pro deployment completed successfully!'
+        }
+
+        failure {
+            echo 'Pipeline failed. Check the failed stage and deployment logs.'
+        }
+
+        always {
+            sh 'docker logout || true'
+            cleanWs()
+        }
+    }
+}
