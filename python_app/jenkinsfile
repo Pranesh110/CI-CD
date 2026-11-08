@@ -20,7 +20,7 @@ pipeline {
         APP_IMAGE = "praneshdoc07/nginx_student_reg:${params.IMAGE_TAG}"
         DB_IMAGE  = 'praneshdoc07/mariadb_student_reg:16'
 
-        SONAR_PROJECT_KEY = 'python-helpdesk-pro'
+        SONAR_PROJECT_KEY = 'student-registration'
 
         DEV_URL = 'http://DEV_SERVER_IP:80'
         PROD_URL = 'http://PROD_SERVER_IP:80'
@@ -40,11 +40,19 @@ pipeline {
         }
 
         stage('Secret Scan - Gitleaks') {
+            agent {
+                docker {
+                    label 'agent1'
+                    image 'ghcr.io/gitleaks/gitleaks:v8.24.2'
+                    args '--entrypoint=""'
+                    reuseNode true
+                }
+            }
             steps {
                 sh '''
                     gitleaks detect \
-                      --source . \
-                      --no-git \
+                      --source="$WORKSPACE/$APP_DIR" \
+                      --redact \
                       --exit-code 1
                 '''
             }
@@ -139,7 +147,7 @@ pipeline {
 
                             withCredentials([
                                 string(
-                                    credentialsId: 'sonarqube-token',
+                                    credentialsId: 'sonar',
                                     variable: 'SONAR_TOKEN'
                                 )
                             ]) {
