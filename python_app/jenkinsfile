@@ -20,7 +20,7 @@ pipeline {
         APP_IMAGE = "praneshdoc07/nginx_student_reg:${params.IMAGE_TAG}"
         DB_IMAGE  = 'praneshdoc07/mariadb_student_reg:16'
 
-        SONAR_PROJECT_KEY = 'Student-registration'
+        SONAR_PROJECT_KEY = 'Student-Registration'
 
         DEV_URL = 'http://13.233.136.182:80'
         PROD_URL = 'http://PROD_SERVER_IP:80'
