@@ -22,7 +22,7 @@ pipeline {
 
         SONAR_PROJECT_KEY = 'student-registration'
 
-        DEV_URL = 'http://DEV_SERVER_IP:80'
+        DEV_URL = 'http://13.233.136.182:80'
         PROD_URL = 'http://PROD_SERVER_IP:80'
     }
 
@@ -104,10 +104,14 @@ pipeline {
 
                         echo "Running Pytest and Coverage"
 
-                        pytest tests/ \
-                          --cov=app \
-                          --cov-report=xml \
-                          --cov-report=term-missing
+                        # Verify Flask application import
+                        python -c "from app import app; print('Flask app imported successfully')"
+
+                        # Run tests
+                        python -m pytest tests/ \
+                            --cov=app \
+                            --cov-report=xml \
+                            --cov-report=term-missing
 
                         echo "Running Ruff"
                         ruff check .
