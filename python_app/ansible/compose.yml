@@ -56,12 +56,22 @@ services:
     restart: unless-stopped
 
 networks:
-    student_portal_front-network:
-      external: true
-      name: student_portal_front-network
+  front-network:
+    name: student_portal_front-network
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+          gateway: 172.20.0.1
 
-    student_portal_backend-network:
-      name: student_portal_backend-network
+  backend-network:
+    name: student_portal_backend-network
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.21.0.0/24
+          gateway: 172.21.0.1
 
 volumes:
   dbpvol:
