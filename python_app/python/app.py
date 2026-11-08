@@ -33,6 +33,7 @@ def wait_for_database(max_attempts=30, delay=2):
         except pymysql.MySQLError as exc:
             print(f"Database not ready ({attempt}/{max_attempts}): {exc}")
             time.sleep(delay)
+
     raise RuntimeError("Could not connect to MariaDB after repeated attempts.")
 
 
@@ -64,16 +65,18 @@ def create_student():
         return jsonify(error="age must be between 1 and 120"), 400
 
     try:
-        with get_connection() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "INSERT INTO students (reg_no, name, age) VALUES (%s, %s, %s)",
-                    (reg_no, name, age),
-                )
-                student_id = cursor.lastrowid
+        with get_connection() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO students (reg_no, name, age) VALUES (%s, %s, %s)",
+                (reg_no, name, age),
+            )
+            student_id = cursor.lastrowid
+
         return jsonify(message="Student registered", id=student_id), 201
+
     except pymysql.err.IntegrityError:
         return jsonify(error="Registration number already exists"), 409
+
     except pymysql.MySQLError:
         app.logger.exception("Database insert failed")
         return jsonify(error="Database operation failed"), 500
@@ -82,21 +85,24 @@ def create_student():
 @app.get("/api/students")
 def search_student():
     reg_no = request.args.get("reg_no", "").strip()
+
     if not reg_no:
         return jsonify(error="Provide a reg_no query parameter"), 400
 
     try:
-        with get_connection() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT id, reg_no, name, age, created_at "
-                    "FROM students WHERE reg_no = %s",
-                    (reg_no,),
-                )
-                student = cursor.fetchone()
+        with get_connection() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, reg_no, name, age, created_at "
+                "FROM students WHERE reg_no = %s",
+                (reg_no,),
+            )
+            student = cursor.fetchone()
+
         if not student:
             return jsonify(error="Student not found"), 404
+
         return jsonify(student), 200
+
     except pymysql.MySQLError:
         app.logger.exception("Database search failed")
         return jsonify(error="Database operation failed"), 500
