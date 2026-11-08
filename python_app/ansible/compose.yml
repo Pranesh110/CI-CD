@@ -1,3 +1,4 @@
+
 services:
   nginx:
     image: praneshdoc07/nginx_student_reg:${WEB_VERSION}
@@ -8,12 +9,11 @@ services:
       python:
         condition: service_started
     networks:
-      student_portal_front-network:
+      front-network:
         ipv4_address: 172.20.0.8
     restart: unless-stopped
 
   python:
-    
     image: praneshdoc07/py_student_reg:${WEB_VERSION}
     container_name: student_python_python
     environment:
@@ -26,14 +26,13 @@ services:
       db:
         condition: service_healthy
     networks:
-      student_portal_front-network:
+      front-network:
         ipv4_address: 172.20.0.9
-      student_portal_backend-network:
+      backend-network:
         ipv4_address: 172.21.0.9
     restart: unless-stopped
 
   db:
-    
     image: praneshdoc07/mariadb_student_reg:16
     container_name: student_mariadb
     environment:
@@ -42,10 +41,10 @@ services:
       MARIADB_USER: ${MARIADB_USER}
       MARIADB_PASSWORD: ${MARIADB_PASSWORD}
     volumes:
-      - dbpvol:/var/lib/mysql
+      - student_portal_python_dbvol:/var/lib/mysql
       - ./opt/student_portal/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     networks:
-      student_portal_backend-network:
+      backend-network:
         ipv4_address: 172.21.0.10
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
@@ -74,5 +73,5 @@ networks:
           gateway: 172.21.0.1
 
 volumes:
-  dbpvol:
-    name: student_portal_python_dbpvol
+  student_portal_python_dbvol:
+    name: student_portal_python_dbvol
