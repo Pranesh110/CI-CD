@@ -70,7 +70,7 @@ pipeline {
 
             steps {
 
-                dir("${APP_DIR/python}") {
+                dir("${APP_DIR}/python") {
 
                     sh '''
                         python --version
