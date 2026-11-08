@@ -55,18 +55,18 @@
 
     - name: Copy Docker Compose file
       ansible.builtin.copy:
-        src: ../compose.yml
-        dest: "{{ deploy_path }}/compose.yaml"
+        src: compose.yml
+        dest: "{{ deploy_path }}/compose.yml"
         mode: '0644'
 
     - name: Create environment configuration
       ansible.builtin.copy:
-        src: ../.env
+        src: .env
         dest: "{{ deploy_path }}/.env"
 
     - name: Create environment configuration
       ansible.builtin.copy:
-        src: ../init.sql
+        src: init.sql
         dest: "{{ deploy_path }}/init.sql"
         
 
