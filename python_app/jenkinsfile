@@ -139,42 +139,40 @@ pipeline {
         // 4. SONARQUBE ANALYSIS
         // ==========================================
 
+        
         stage('SonarQube Analysis') {
-            
             steps {
-
                 dir("${APP_DIR}/python") {
-
                     script {
-
                         def scannerHome = tool 'SonarScanner'
 
-                        withSonarQubeEnv('SonarQube-Server1') {
-
+                        withSonarQubeEnv('SonarQube-Server') {
                             withCredentials([
                                 string(
                                     credentialsId: 'sonar',
                                     variable: 'SONAR_TOKEN'
                                 )
                             ]) {
-
-                                sh """
-                                    ${scannerHome}/bin/sonar-scanner \
-                                      -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
-                                      -Dsonar.projectName=Student-Registration \
-                                      -Dsonar.sources=. \
-                                      -Dsonar.tests=tests \
-                                      -Dsonar.python.version=3.12 \
-                                      -Dsonar.python.coverage.reportPaths=coverage.xml \
-                                      -Dsonar.exclusions=.venv/**,**/__pycache__/** \
-                                      -Dsonar.token=\\$SONAR_TOKEN
-                                """
+                                withEnv(["SCANNER_HOME=${scannerHome}"]) {
+                                    sh '''
+                                        "$SCANNER_HOME/bin/sonar-scanner" \
+                                        -Dsonar.projectKey=Student-Registration \
+                                        -Dsonar.projectName=Student-Registration \
+                                        -Dsonar.sources=app.py \
+                                        -Dsonar.tests=tests \
+                                        -Dsonar.python.version=3.12 \
+                                        -Dsonar.python.coverage.reportPaths=coverage.xml \
+                                        -Dsonar.exclusions=.venv/**,**/__pycache__/** \
+                                        -Dsonar.token="$SONAR_TOKEN"
+                                    '''
+                                }
                             }
                         }
                     }
                 }
             }
         }
+
 
         // ==========================================
         // 5. BUILD DOCKER IMAGES
