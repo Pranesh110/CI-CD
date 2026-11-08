@@ -42,7 +42,7 @@ services:
       MARIADB_PASSWORD: ${MARIADB_PASSWORD}
     volumes:
       - student_portal_python_dbvol:/var/lib/mysql
-      - ./opt/student_portal/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     networks:
       backend-network:
         ipv4_address: 172.21.0.10
