@@ -14,15 +14,16 @@ pipeline {
     }
 
     environment {
-        APP_DIR = 'python_app/it-incident-desk-app'
+        APP_DIR = 'python_app/'
 
-        WEB_IMAGE = "praneshdoc07/helpdesk-web:${params.IMAGE_TAG}"
-        DB_IMAGE  = 'praneshdoc07/helpdesk-db:16'
+        WEB_IMAGE = "praneshdoc07/py_student_reg:${params.IMAGE_TAG}"
+        APP_IMAGE = "praneshdoc07/nginx_student_reg:${params.IMAGE_TAG}"
+        DB_IMAGE  = 'praneshdoc07/mariadb_student_reg:16'
 
         SONAR_PROJECT_KEY = 'python-helpdesk-pro'
 
-        DEV_URL = 'http://DEV_SERVER_IP:8000'
-        PROD_URL = 'http://PROD_SERVER_IP:8000'
+        DEV_URL = 'http://DEV_SERVER_IP:80'
+        PROD_URL = 'http://PROD_SERVER_IP:80'
     }
 
     stages {
@@ -61,7 +62,7 @@ pipeline {
 
             steps {
 
-                dir("${APP_DIR}") {
+                dir("${APP_DIR/python}") {
 
                     sh '''
                         python --version
@@ -90,7 +91,7 @@ pipeline {
 
                         echo "Starting application smoke test"
 
-                        uvicorn app:app \
+                        python app.py \
                           --host 127.0.0.1 \
                           --port 8000 \
                           > /tmp/helpdesk-test.log 2>&1 &
@@ -146,7 +147,7 @@ pipeline {
                                 sh """
                                     ${scannerHome}/bin/sonar-scanner \
                                       -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
-                                      -Dsonar.projectName=HelpDesk-Pro \
+                                      -Dsonar.projectName=Student-Registration \
                                       -Dsonar.sources=. \
                                       -Dsonar.python.version=3.12 \
                                       -Dsonar.python.coverage.reportPaths=coverage.xml \
@@ -164,19 +165,26 @@ pipeline {
             steps {
 
                 sh '''
-                    echo "Building HelpDesk web image"
+                    echo "Building Student Registration web image"
 
                     docker build \
                       -t "$WEB_IMAGE" \
-                      -f python_app/Dockerfile \
-                      python_app/
+                      -f python_app/python/pythondockerfile \
+                      python_app/python/
 
-                    echo "Building PostgreSQL image"
+                    echo "Building mariadb image"
 
                     docker build \
                       -t "$DB_IMAGE" \
-                      -f python_app/database/Dockerfile \
-                      python_app/database/
+                      -f python_app/mariadb/dbdockerfile \
+                      python_app/mariadb/
+
+                    echo "Building nginx image"
+
+                    docker build \
+                      -t "$APP_IMAGE" \
+                      -f python_app/nginx/nginxdockerfile \
+                      python_app/nginx/
                 '''
             }
         }
@@ -200,6 +208,7 @@ pipeline {
 
                         docker push "$WEB_IMAGE"
                         docker push "$DB_IMAGE"
+                        docker push "$APP_IMAGE"
 
                         docker logout
                     '''

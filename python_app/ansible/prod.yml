@@ -5,7 +5,7 @@
   become: true
 
   vars:
-    deploy_path: /opt/helpdesk
+    deploy_path: /opt/student_portal
 
   tasks:
 
@@ -75,14 +75,14 @@
         cmd: docker compose pull
         chdir: "{{ deploy_path }}"
 
-    - name: Deploy HelpDesk Pro
+    - name: Deploy Student
       ansible.builtin.command:
         cmd: docker compose up -d --remove-orphans
         chdir: "{{ deploy_path }}"
 
     - name: Wait for application health endpoint
       ansible.builtin.uri:
-        url: http://127.0.0.1:8000/health
+        url: http://127.0.0.1:80/health
         method: GET
         status_code: 200
       register: health_result
