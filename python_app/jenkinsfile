@@ -14,7 +14,7 @@ pipeline {
     }
 
     environment {
-        APP_DIR = 'python_app/'
+        APP_DIR = 'python_app'
 
         WEB_IMAGE = "praneshdoc07/py_student_reg:${params.IMAGE_TAG}"
         APP_IMAGE = "praneshdoc07/nginx_student_reg:${params.IMAGE_TAG}"
@@ -238,7 +238,7 @@ pipeline {
 
                 sh '''
                     ansible-playbook \
-                      -i dev python_app/ansible/inventory.ini \
+                      -i python_app/ansible/inventory.ini \
                       python_app/ansible/dev.yml 
                 '''
             }
@@ -250,7 +250,7 @@ pipeline {
 
                 sh '''
                     curl --fail --retry 10 --retry-delay 5 \
-                      "$DEV_URL/health"
+                      "$DEV_URL/api/health"
 
                     curl --fail --retry 10 --retry-delay 5 \
                       "$DEV_URL/health/db"
@@ -286,7 +286,7 @@ pipeline {
 
                 sh '''
                     ansible-playbook \
-                      -i prod python_app/ansible/inventory.ini \
+                      -i python_app/ansible/inventory.ini \
                       python_app/ansible/prod.yml 
                 '''
             }
@@ -298,7 +298,7 @@ pipeline {
 
                 sh '''
                     curl --fail --retry 10 --retry-delay 5 \
-                      "$PROD_URL/health"
+                      "$PROD_URL/api/health"
 
                     curl --fail --retry 10 --retry-delay 5 \
                       "$PROD_URL/health/db"
