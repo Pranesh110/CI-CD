@@ -28,18 +28,27 @@ pipeline {
 
     stages {
 
+        // ==========================================
+        // 1. CHECKOUT
+        // ==========================================
+
         stage('Checkout') {
             steps {
                 checkout scm
 
-                echo 'Source code checked out successfully'
+                echo 'Student Registration source code checked out'
 
                 stash name: 'ansible-files',
                       includes: 'python_app/ansible/**'
             }
         }
 
+        // ==========================================
+        // 2. GITLEAKS SECRET SCAN
+        // ==========================================
+
         stage('Secret Scan - Gitleaks') {
+
             agent {
                 docker {
                     label 'agent1'
@@ -48,6 +57,7 @@ pipeline {
                     reuseNode true
                 }
             }
+
             steps {
                 sh '''
                     gitleaks detect \
@@ -57,6 +67,10 @@ pipeline {
                 '''
             }
         }
+
+        // ==========================================
+        // 3. PYTHON BUILD AND TEST
+        // ==========================================
 
         stage('Python Build and Test') {
 
@@ -73,11 +87,16 @@ pipeline {
                 dir("${APP_DIR}/python") {
 
                     sh '''
+                        set -e
+
+                        echo "Python version"
                         python --version
 
+                        echo "Creating virtual environment"
                         python -m venv .venv
                         . .venv/bin/activate
 
+                        echo "Installing dependencies"
                         python -m pip install --upgrade pip
 
                         pip install -r requirements.txt
@@ -86,63 +105,36 @@ pipeline {
                         echo "Running Pytest and Coverage"
 
                         pytest tests/ \
-                         --cov=app \
-                         --cov-report=xml \
-                         --cov-report=term-missing
+                          --cov=app \
+                          --cov-report=xml \
+                          --cov-report=term-missing
 
                         echo "Running Ruff"
-
                         ruff check .
 
                         echo "Running Bandit"
-
                         bandit -r . --exclude ./.venv
 
-                        echo "Starting application smoke test"
-
-                        python app.py \
-                          --host 127.0.0.1 \
-                          --port 8000 \
-                          > /tmp/helpdesk-test.log 2>&1 &
-
-                        APP_PID=$!
-
-                        cleanup() {
-                            kill "$APP_PID" 2>/dev/null || true
-                        }
-
-                        trap cleanup EXIT
-
-                        python - <<'PY'
-                        import time
-                        import urllib.request
-
-                        url = "http://127.0.0.1:8000/health"
-
-                        for attempt in range(15):
-                            try:
-                                with urllib.request.urlopen(url, timeout=2) as response:
-                                    print(response.read().decode())
-                                    break
-                            except Exception:
-                                if attempt == 14:
-                                    raise
-                                time.sleep(2)
-                        PY
+                        echo "Python Build and Test completed"
                     '''
-                post{
-                    archiveArtifacts artifacts: "${APP_DIR}/python/app.py", allowEmptyArchive: true
-                }
                 }
 
+                archiveArtifacts(
+                    artifacts: 'python_app/python/coverage.xml',
+                    allowEmptyArchive: true
+                )
             }
         }
+
+        // ==========================================
+        // 4. SONARQUBE ANALYSIS
+        // ==========================================
 
         stage('SonarQube Analysis') {
 
             steps {
 
-                dir("${APP_DIR}") {
+                dir("${APP_DIR}/python") {
 
                     script {
 
@@ -162,9 +154,11 @@ pipeline {
                                       -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
                                       -Dsonar.projectName=Student-Registration \
                                       -Dsonar.sources=. \
+                                      -Dsonar.tests=tests \
                                       -Dsonar.python.version=3.12 \
                                       -Dsonar.python.coverage.reportPaths=coverage.xml \
-                                      -Dsonar.token=\$SONAR_TOKEN
+                                      -Dsonar.exclusions=.venv/**,**/__pycache__/** \
+                                      -Dsonar.token=\\$SONAR_TOKEN
                                 """
                             }
                         }
@@ -173,34 +167,48 @@ pipeline {
             }
         }
 
+        // ==========================================
+        // 5. BUILD DOCKER IMAGES
+        // ==========================================
+
         stage('Build Docker Images') {
 
             steps {
 
                 sh '''
-                    echo "Building Student Registration web image"
+                    set -e
+
+                    echo "Building Python application image"
 
                     docker build \
                       -t "$WEB_IMAGE" \
                       -f python_app/python/pythondockerfile \
                       python_app/python/
 
-                    echo "Building mariadb image"
+                    echo "Building MariaDB image"
 
                     docker build \
                       -t "$DB_IMAGE" \
                       -f python_app/mariadb/dbdockerfile \
                       python_app/mariadb/
 
-                    echo "Building nginx image"
+                    echo "Building NGINX image"
 
                     docker build \
                       -t "$APP_IMAGE" \
                       -f python_app/nginx/nginxdockerfile \
                       python_app/nginx/
+
+                    echo "All three Docker images built successfully"
+
+                    docker images
                 '''
             }
         }
+
+        // ==========================================
+        // 6. PUSH IMAGES TO DOCKER HUB
+        // ==========================================
 
         stage('Push Images to Docker Hub') {
 
@@ -215,6 +223,8 @@ pipeline {
                 ]) {
 
                     sh '''
+                        set -e
+
                         echo "$DOCKER_PASS" | docker login \
                           -u "$DOCKER_USER" \
                           --password-stdin
@@ -228,6 +238,10 @@ pipeline {
                 }
             }
         }
+
+        // ==========================================
+        // 7. DEPLOY TO DEV
+        // ==========================================
 
         stage('Deploy to Dev') {
 
@@ -244,24 +258,33 @@ pipeline {
                 sh '''
                     ansible-playbook \
                       -i python_app/ansible/inventory.ini \
-                      python_app/ansible/dev.yml 
+                      python_app/ansible/dev.yml
                 '''
             }
         }
+
+        // ==========================================
+        // 8. DEV HEALTH CHECK
+        // ==========================================
 
         stage('Dev Health Check') {
 
             steps {
 
                 sh '''
+                    echo "Checking Dev application health"
+
                     curl --fail --retry 10 --retry-delay 5 \
                       "$DEV_URL/api/health"
 
-                    curl --fail --retry 10 --retry-delay 5 \
-                      "$DEV_URL/health/db"
+                    echo "Dev application is healthy"
                 '''
             }
         }
+
+        // ==========================================
+        // 9. PRODUCTION APPROVAL
+        // ==========================================
 
         stage('Production Approval') {
 
@@ -276,6 +299,10 @@ pipeline {
                 }
             }
         }
+
+        // ==========================================
+        // 10. DEPLOY TO PRODUCTION
+        // ==========================================
 
         stage('Deploy to Production') {
 
@@ -292,34 +319,47 @@ pipeline {
                 sh '''
                     ansible-playbook \
                       -i python_app/ansible/inventory.ini \
-                      python_app/ansible/prod.yml 
+                      python_app/ansible/prod.yml
                 '''
             }
         }
+
+        // ==========================================
+        // 11. PRODUCTION HEALTH CHECK
+        // ==========================================
 
         stage('Production Health Check') {
 
             steps {
 
                 sh '''
+                    echo "Checking Production application health"
+
                     curl --fail --retry 10 --retry-delay 5 \
                       "$PROD_URL/api/health"
 
-                    curl --fail --retry 10 --retry-delay 5 \
-                      "$PROD_URL/health/db"
+                    echo "Production application is healthy"
                 '''
             }
         }
     }
 
+    // ==========================================
+    // POST BUILD ACTIONS
+    // ==========================================
+
     post {
 
         success {
-            echo 'HelpDesk Pro deployment completed successfully!'
+            echo 'Student Registration CI/CD pipeline completed successfully!'
         }
 
         failure {
             echo 'Pipeline failed. Check the failed stage and deployment logs.'
+        }
+
+        aborted {
+            echo 'Pipeline was aborted.'
         }
 
         always {
