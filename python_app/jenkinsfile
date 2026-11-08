@@ -85,9 +85,10 @@ pipeline {
 
                         echo "Running Pytest and Coverage"
 
-                        pytest --cov=app \
-                          --cov-report=xml \
-                          --cov-report=term-missing
+                        pytest tests/ \
+                         --cov=app \
+                         --cov-report=xml \
+                         --cov-report=term-missing
 
                         echo "Running Ruff"
 
@@ -129,7 +130,11 @@ pipeline {
                                 time.sleep(2)
                         PY
                     '''
+                post{
+                    archiveArtifacts artifacts: "${APP_DIR}/python/app.py", allowEmptyArchive: true
                 }
+                }
+
             }
         }
 
