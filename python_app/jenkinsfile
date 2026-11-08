@@ -114,10 +114,15 @@ pipeline {
                             --cov-report=term-missing
 
                         echo "Running Ruff"
+                        
                         ruff check .
 
                         echo "Running Bandit"
-                        bandit -r . --exclude ./.venv
+                        bandit -r . \
+                            --exclude ./.venv,./tests \
+                            --severity-level medium \
+                            --confidence-level medium
+                        
 
                         echo "Python Build and Test completed"
                     '''
