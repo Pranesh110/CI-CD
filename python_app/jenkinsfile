@@ -140,7 +140,7 @@ pipeline {
         // ==========================================
 
         stage('SonarQube Analysis') {
-
+            
             steps {
 
                 dir("${APP_DIR}/python") {
@@ -149,7 +149,7 @@ pipeline {
 
                         def scannerHome = tool 'SonarScanner'
 
-                        withSonarQubeEnv('SonarQube-Server') {
+                        withSonarQubeEnv('SonarQube-Server1') {
 
                             withCredentials([
                                 string(
