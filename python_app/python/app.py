@@ -110,4 +110,6 @@ def search_student():
 
 if __name__ == "__main__":
     wait_for_database()
-    app.run(host="0.0.0.0", port=8000)
+
+    # Intentional: required for access from NGINX through the Docker network.
+    app.run(host="0.0.0.0", port=8000)  # nosec B104
